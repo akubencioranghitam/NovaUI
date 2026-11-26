@@ -119,7 +119,8 @@ setfenv(initChunk, setmetatable({
     require = moduleRequire,
 }, { __index = globalEnvironment }))
 
-local ran, NovaUI = pcall(initChunk)
-assert(ran, "NovaUI: initialization failed: " .. tostring(NovaUI))
-assert(type(NovaUI) == "table", "NovaUI: init.lua did not return the NovaUI table")
+local NovaUI = initChunk()
+
+assert(type(NovaUI) == "table", "NovaUI did not return a table")
+
 return NovaUI
