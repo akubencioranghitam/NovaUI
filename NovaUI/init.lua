@@ -1,183 +1,149 @@
---!nocheck
--- NovaUI loadstring entry point.
--- Loads the existing modules from this repository while emulating the small
--- ModuleScript tree expected by the original init.lua.
+--!nonstrict
+--[[ NovaUI — public entry point.
+This is the only module that wires the others together; Core and Features receive
+their dependencies through a context table, so there are no circular requires. ]]
+local Players = game:GetService("Players")
 
-local OWNER = "akubencioranghitam"
-local REPOSITORY = "NovaUI"
-local BRANCH = "main"
-local ROOT_PATH = "NovaUI"
+local Core = script.Core
+local Features = script.Features
+local Components = script.Components
 
-local BASE_URL = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPOSITORY .. "/" .. BRANCH .. "/" .. ROOT_PATH .. "/"
+local Utilities = require(Core.Utilities)
+local AnimationManager = require(Core.AnimationManager)
+local ThemeManager = require(Core.ThemeManager)
+local Icons = require(Core.Icons)
+local Window = require(Core.Window)
+local Tab = require(Core.Tab)
+local Section = require(Core.Section)
+local Search = require(Features.Search)
+local ContextMenu = require(Features.ContextMenu)
+local Notifications = require(Features.Notifications)
+local Configuration = require(Features.Configuration)
 
-local MODULES = {
-    "Core/AnimationManager.lua",
-    "Core/Element.lua",
-    "Core/Icons.lua",
-    "Core/Section.lua",
-    "Core/Tab.lua",
-    "Core/ThemeManager.lua",
-    "Core/Utilities.lua",
-    "Core/Window.lua",
-
-    "Features/Configuration.lua",
-    "Features/ContextMenu.lua",
-    "Features/Notifications.lua",
-    "Features/Search.lua",
-
-    "Components/Button.lua",
-    "Components/ColorPicker.lua",
-    "Components/Divider.lua",
-    "Components/Dropdown.lua",
-    "Components/Keybind.lua",
-    "Components/Label.lua",
-    "Components/MultiDropdown.lua",
-    "Components/Paragraph.lua",
-    "Components/ProgressBar.lua",
-    "Components/Slider.lua",
-    "Components/Textbox.lua",
-    "Components/Toggle.lua",
-
-    "Themes/Aurora.lua",
-    "Themes/CyberBlue.lua",
-    "Themes/Lavender.lua",
-    "Themes/MidnightPurple.lua",
-    "Themes/Obsidian.lua",
-    "Themes/RoseQuartz.lua",
+local NovaUI = {
+	Version = "0.1.0",
+	Animations = AnimationManager,
 }
 
-local globalEnvironment = getfenv(0)
-local sourceCache = {}
-local moduleCache = {}
+local theme = ThemeManager.new(AnimationManager)
+NovaUI.Theme = theme
 
-local function newNode(name, parent, isModule, path)
-    local node = {
-        Name = name,
-        Parent = parent,
-        __children = {},
-        __isModule = isModule == true,
-        __path = path,
-    }
+-- Built-in themes: add a file to Themes/ and it is picked up automatically.
+for _, module in script.Themes:GetChildren() do
+	local definition = require(module) :: any
+	theme:Register(definition.Name, definition.Colors)
+end
+theme:Set("Midnight Purple")
 
-    function node:GetChildren()
-        local result = {}
-        for _, child in pairs(self.__children) do
-            table.insert(result, child)
-        end
-        return result
-    end
+local components = {
+	Button = require(Components.Button),
+	Toggle = require(Components.Toggle),
+	Slider = require(Components.Slider),
+	Dropdown = require(Components.Dropdown),
+	MultiDropdown = require(Components.MultiDropdown),
+	Textbox = require(Components.Textbox),
+	Keybind = require(Components.Keybind),
+	ColorPicker = require(Components.ColorPicker),
+	Label = require(Components.Label),
+	Paragraph = require(Components.Paragraph),
+	Divider = require(Components.Divider),
+	ProgressBar = require(Components.ProgressBar),
+}
 
-    return setmetatable(node, {
-        __index = function(self, key)
-            local child = rawget(self, "__children")[key]
-            if child ~= nil then
-                return child
-            end
-            return nil
-        end,
-    })
+local windows = {}
+local defaultParent: Instance? = nil
+
+local function makeGui(name: string, displayOrder: number, parent: Instance?)
+	local target = parent or defaultParent
+	if not target then
+		local player = Players.LocalPlayer
+		assert(player, "NovaUI must run in a LocalScript, or be given a Parent")
+		target = player:WaitForChild("PlayerGui")
+	end
+	return Utilities.create("ScreenGui", {
+		Name = name,
+		ResetOnSpawn = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		DisplayOrder = displayOrder,
+		Parent = target,
+	})
 end
 
-local root = newNode("NovaUI", nil, false, nil)
+local notifications = Notifications.new(Utilities, theme, AnimationManager, Icons, function()
+	return makeGui("NovaUINotifications", 110)
+end)
 
-local function addModule(relativePath)
-    local parts = {}
-    for part in string.gmatch(relativePath, "[^/]+") do
-        table.insert(parts, part)
-    end
-
-    local parent = root
-    local accumulated = ""
-
-    for index, part in ipairs(parts) do
-        accumulated = accumulated == "" and part or (accumulated .. "/" .. part)
-        local isFile = index == #parts
-        local name = isFile and string.gsub(part, "%.lua$", "") or part
-        local child = parent.__children[name]
-
-        if not child then
-            child = newNode(name, parent, isFile, isFile and accumulated or nil)
-            parent.__children[name] = child
-        end
-
-        parent = child
-    end
+--[[ config: Title, Subtitle, Theme, Size (Vector2), MinSize (Vector2), Resizable,
+Search, ToggleKey (KeyCode or false), Parent, ConfigName, Storage ]]
+function NovaUI:CreateWindow(config: any?)
+	local options = config or {}
+	if options.Parent then
+		defaultParent = options.Parent
+	end
+	if options.Theme then
+		theme:Set(options.Theme)
+	end
+	local ctx: any = {
+		utilities = Utilities,
+		theme = theme,
+		animations = AnimationManager,
+		icons = Icons,
+		tab = Tab,
+		section = Section,
+		search = Search,
+		contextMenuClass = ContextMenu,
+		components = components,
+		config = Configuration.new(options.ConfigName or options.Title or "NovaUI", options.Storage),
+	}
+	local window = Window.new(ctx, options, makeGui("NovaUI", 100, options.Parent), function(closed)
+		local index = table.find(windows, closed)
+		if index then
+			table.remove(windows, index)
+		end
+	end)
+	window.Config = ctx.config
+	window.ContextMenu = ctx.contextMenu
+	table.insert(windows, window)
+	return window
 end
 
-for _, path in ipairs(MODULES) do
-    addModule(path)
+function NovaUI:Notify(options: any)
+	return notifications:Notify(options or {})
 end
 
-local function moduleRequire(module)
-    assert(type(module) == "table" and module.__isModule, "NovaUI: invalid module passed to require")
-
-    if moduleCache[module] ~= nil then
-        if moduleCache[module] == true then
-            error("NovaUI: circular module dependency at " .. module.__path, 2)
-        end
-        return moduleCache[module]
-    end
-
-    moduleCache[module] = true
-
-    local source = sourceCache[module.__path]
-    if not source then
-        local url = BASE_URL .. string.gsub(module.__path, " ", "%%20")
-        local ok, result = pcall(function()
-            return game:HttpGet(url)
-        end)
-        if not ok or type(result) ~= "string" or result == "" then
-            moduleCache[module] = nil
-            error("NovaUI: failed to download " .. module.__path .. ": " .. tostring(result), 2)
-        end
-        source = result
-        sourceCache[module.__path] = source
-    end
-
-    local chunk, compileError = loadstring(source, "@NovaUI/" .. module.__path)
-    if not chunk then
-        moduleCache[module] = nil
-        error("NovaUI: compile error in " .. module.__path .. ": " .. tostring(compileError), 2)
-    end
-
-    local environment = setmetatable({
-        script = module,
-        require = moduleRequire,
-    }, {
-        __index = globalEnvironment,
-    })
-
-    setfenv(chunk, environment)
-
-    local ok, result = pcall(chunk)
-    if not ok then
-        moduleCache[module] = nil
-        error("NovaUI: error while loading " .. module.__path .. ": " .. tostring(result), 2)
-    end
-
-    moduleCache[module] = result
-    return result
+function NovaUI:SetTheme(name: string): boolean
+	return theme:Set(name)
 end
 
--- Execute the original public entry point with the virtual NovaUI folder as script.
-local initUrl = BASE_URL .. "init.lua"
-local initSource = game:HttpGet(initUrl)
-assert(type(initSource) == "string" and initSource ~= "", "NovaUI: could not download init.lua")
+function NovaUI:GetThemes(): { string }
+	return theme:GetNames()
+end
 
-local initChunk, initError = loadstring(initSource, "@NovaUI/init.lua")
-assert(initChunk, "NovaUI: init.lua compile error: " .. tostring(initError))
+function NovaUI:RegisterTheme(name: string, colors: { [string]: any }, base: string?)
+	theme:Register(name, colors, base)
+end
 
-local initEnvironment = setmetatable({
-    script = root,
-    require = moduleRequire,
-}, {
-    __index = globalEnvironment,
-})
+function NovaUI:CustomizeTheme(overrides: { [string]: Color3 })
+	theme:Customize(overrides)
+end
 
-setfenv(initChunk, initEnvironment)
+-- Adds Section:Create<Name>(config). `module.new(ctx, section, config)` must return an Element.
+function NovaUI:RegisterComponent(name: string, module: any)
+	assert(string.match(name, "^%u%w*$"), "NovaUI: component names are PascalCase")
+	assert(not components[name], "NovaUI: component already registered: " .. name)
+	assert(type(module.new) == "function", "NovaUI: component needs new()")
+	components[name] = module
+end
 
-local ok, NovaUI = pcall(initChunk)
-assert(ok, "NovaUI: initialization failed: " .. tostring(NovaUI))
-assert(type(NovaUI) == "table", "NovaUI: init.lua did not return the library table")
+-- Destroys every window and notification created by NovaUI.
+function NovaUI:Destroy()
+	for _, window in table.clone(windows) do
+		window:Destroy()
+	end
+	notifications:Destroy()
+	defaultParent = nil
+end
+
+NovaUI.Element = require(Core.Element) -- base class for custom components
 
 return NovaUI
