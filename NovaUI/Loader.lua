@@ -2,7 +2,7 @@
 -- NovaUI loadstring bootstrap. The original init.lua remains unchanged.
 local OWNER = "akubencioranghitam"
 local REPOSITORY = "NovaUI"
-local BRANCH = "main"
+local BRANCH = "dcb06043ae77a17fd227d855f11937aa0e507b37"
 local ROOT_PATH = "NovaUI"
 local BASE_URL = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPOSITORY .. "/" .. BRANCH .. "/" .. ROOT_PATH .. "/"
 
