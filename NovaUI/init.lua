@@ -96,7 +96,7 @@ local function addModule(relativePath)
         local child = parent.__children[name]
 
         if not child then
-            child = newNode(name, parent, isFile, isFile and (ROOT_PATH .. "/" .. accumulated) or nil)
+            child = newNode(name, parent, isFile, isFile and accumulated or nil)
             parent.__children[name] = child
         end
 
